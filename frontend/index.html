@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MonsoonSaathi — Farmer-First Monsoon Decision Support | Foresight SIH26086</title>
+  <meta name="description" content="A farmer-first monsoon decision-support system converting meteorological forecasts into clear SOW, WAIT, or PROTECT agricultural actions.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Loading Overlay -->
+  <div id="bootOverlay" class="boot-overlay" role="status" aria-live="polite">
+    <div class="spinner"></div>
+    <div class="boot-brand">
+      <span class="boot-icon">🌧️</span>
+      <b>MonsoonSaathi</b>
+    </div>
+    <small id="bootStatus">Loading calibrated monsoon forecast data…</small>
+  </div>
+
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- API Error Banner (Visible when backend cannot be reached) -->
+    <div id="apiErrorBanner" class="api-error-banner hidden" role="alert">
+      <div class="api-error-content">
+        <span class="api-error-icon">⚠️</span>
+        <div class="api-error-text">
+          <strong data-i18n="api_error_title">Unable to connect to backend API</strong>
+          <p id="apiErrorMessage">Cannot reach backend server. Please verify backend is running on port 8000.</p>
+        </div>
+      </div>
+      <button id="btnRetryApi" class="btn-retry-api" data-i18n="btn_retry">🔄 Retry Connection</button>
+    </div>
+
+    <!-- Top App Bar -->
+    <header class="top-bar">
+      <div class="brand-group">
+        <a href="#home" class="brand-link" id="brandHomeLink">
+          <span class="brand-icon">🌧️</span>
+          <div>
+            <div class="brand-title">MonsoonSaathi <span class="brand-tag">Foresight</span></div>
+            <div class="brand-sub">SIH26086 • Ministry of Earth Sciences (NCMRWF)</div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Quick Location & Crop Context (Desktop & Tablet) -->
+      <div class="header-context">
+        <div class="loc-search-box">
+          <span class="search-icon">📍</span>
+          <select id="stateSelect" aria-label="Select State" title="State"></select>
+          <select id="districtSelect" aria-label="Select District" title="District"></select>
+          <button id="btnGpsLocation" class="btn-gps" title="Use my current GPS location">
+            <span class="gps-icon">⌖</span>
+            <span class="gps-text" data-i18n="use_location">My Location</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Header Controls: Language + Expert Mode Toggle -->
+      <div class="header-actions">
+        <div class="lang-toggle" role="group" aria-label="Language selection">
+          <button class="lang-btn active" data-lang="en">EN</button>
+          <button class="lang-btn" data-lang="hi">हिन्दी</button>
+        </div>
+
+        <button id="btnToggleExpert" class="btn-expert-mode" data-mode="farmer">
+          <span class="expert-icon">⚙️</span>
+          <span class="expert-label" data-i18n="expert_mode_btn">Expert Mode</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Sub-header for Mobile Search & Location (Visible on small screens) -->
+    <div class="mobile-loc-bar">
+      <div class="loc-pills">
+        <button id="btnMobileLocChange" class="loc-pill-btn">
+          📍 <span id="mobileLocName">Loading…</span> ▾
+        </button>
+        <button id="btnMobileGps" class="loc-pill-gps" title="GPS">⌖</button>
+      </div>
+      <div class="crop-stage-pill" id="mobileCropBadge">🌾 Paddy</div>
+    </div>
+
+    <!-- Main Navigation Bar (Clean desktop tabs / Bottom mobile bar) -->
+    <nav class="main-nav" aria-label="Primary navigation">
+      <button class="nav-item active" data-page="home">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label" data-i18n="nav_home">Home</span>
+      </button>
+      <button class="nav-item" data-page="forecast">
+        <span class="nav-icon">🗺️</span>
+        <span class="nav-label" data-i18n="nav_forecast">Local Forecast</span>
+      </button>
+      <button class="nav-item" data-page="mycrop">
+        <span class="nav-icon">🌾</span>
+        <span class="nav-label" data-i18n="nav_mycrop">My Crop</span>
+      </button>
+      <button class="nav-item" data-page="alerts">
+        <span class="nav-icon">🔔</span>
+        <span class="nav-label" data-i18n="nav_alerts">Alerts</span>
+        <span class="alert-badge" id="navAlertBadge">0</span>
+      </button>
+      <button class="nav-item nav-expert-tab" data-page="expert">
+        <span class="nav-icon">🔬</span>
+        <span class="nav-label" data-i18n="nav_expert">Expert View</span>
+      </button>
+    </nav>
+
+    <!-- Content Pages Container -->
+    <main class="main-content" id="mainContent">
+
+      <!-- ============================================================== -->
+      <!-- PAGE 1: HOME (FARMER-FIRST DECISION HUB: "What should I do today?") -->
+      <!-- ============================================================== -->
+      <section class="page-view active" id="page-home">
+        
+        <!-- Farmer Context Bar: Location + Crop + Growth Stage -->
+        <div class="farmer-context-card">
+          <div class="context-item">
+            <span class="context-label" data-i18n="ctx_location">📍 Location</span>
+            <div class="context-val" id="homeLocationDisplay">—</div>
+          </div>
+          <div class="context-item">
+            <span class="context-label" data-i18n="ctx_crop">🌾 Crop</span>
+            <select id="homeCropSelect" class="context-select" aria-label="Select Crop"></select>
+          </div>
+          <div class="context-item">
+            <span class="context-label" data-i18n="ctx_stage">🌱 Growth Stage</span>
+            <select id="homeStageSelect" class="context-select" aria-label="Select Growth Stage"></select>
+          </div>
+          <div class="context-item context-weather-mini">
+            <span class="context-label" data-i18n="ctx_today_weather">🌦️ Today's Weather</span>
+            <div class="context-val weather-val" id="homeMiniWeather">—</div>
+          </div>
+        </div>
+
+        <!-- NATIONAL & DISTRICT MONSOON RISK MAP -->
+        <div class="section-card home-map-card">
+          <div class="card-title-bar">
+            <div>
+              <h3 data-i18n="map_section_title">🗺️ National & District Monsoon Risk Map</h3>
+              <p class="card-subtitle" data-i18n="map_section_sub">Calibrated district-scale forecasts across 423 agricultural zones. Click any pin to load.</p>
+            </div>
+            <!-- Map Layer Buttons -->
+            <div class="map-layer-buttons" id="homeMapLayers">
+              <button class="layer-btn active" data-layer="farming_risk">🌾 Decision</button>
+              <button class="layer-btn" data-layer="onset_probability">🌧️ Onset</button>
+              <button class="layer-btn" data-layer="break_probability">☀️ Dry Spell</button>
+              <button class="layer-btn" data-layer="heavy_rain_probability">⛈️ Heavy Rain</button>
+            </div>
+          </div>
+
+          <div class="expert-map-layout home-map-layout">
+            <div class="map-container-card">
+              <div id="mainLeafletMap" class="leaflet-map-wrapper"></div>
+              <div class="map-legend-bar" id="mapLegendBar">
+                <span class="legend-dot green">● Low Risk / SOW</span>
+                <span class="legend-dot amber">● Moderate / WAIT</span>
+                <span class="legend-dot red">● High Risk / PROTECT</span>
+              </div>
+            </div>
+
+            <!-- Selected District Quick Summary Panel -->
+            <div class="district-detail-drawer" id="selectedDistrictPanel">
+              <small class="drawer-pre" data-i18n="selected_district_tag">📍 SELECTED DISTRICT</small>
+              <h3 id="drawerDistrictName">—</h3>
+              <p class="drawer-crop" id="drawerDistrictCrop">—</p>
+              <hr class="drawer-hr">
+              <div class="drawer-prob-row">
+                <div><span>Onset:</span> <b id="drawerOnset">—</b></div>
+                <div><span>Break:</span> <b id="drawerBreak">—</b></div>
+                <div><span>Heavy:</span> <b id="drawerHeavy">—</b></div>
+              </div>
+              <div class="drawer-decision-chip" id="drawerDecisionChip">—</div>
+              <p class="drawer-advisory-text" id="drawerAdvisory">—</p>
+              <button class="btn-select-as-current" id="btnFocusActionPlan" onclick="document.getElementById('mainDecisionCard').scrollIntoView({behavior:'smooth'})">
+                ↓ View Full Decision & Advisory
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PRIMARY DECISION CARD: SOW / WAIT / PROTECT -->
+        <div class="decision-card" id="mainDecisionCard">
+          <div class="decision-header">
+            <div class="decision-badge" id="decisionBadge">
+              <span class="decision-icon" id="decisionIcon">🟡</span>
+              <span class="decision-text" id="decisionText">WAIT</span>
+            </div>
+            <div class="decision-meta">
+              <span class="decision-sub-label" data-i18n="decision_today_label">TODAY'S FARMING ADVISORY</span>
+              <div class="decision-headline" id="decisionHeadline">Checking forecast conditions…</div>
+            </div>
+          </div>
+
+          <div class="decision-body">
+            <div class="decision-reason-box">
+              <strong class="reason-title" data-i18n="why_label">Why:</strong>
+              <p class="reason-text" id="decisionReason">Evaluating monsoon onset, dry-spell risk, and crop growth stage.</p>
+            </div>
+
+            <!-- Underlying Probabilities (Transparent & Honest) -->
+            <div class="prob-strip" id="homeProbStrip">
+              <div class="prob-item">
+                <span class="prob-title" data-i18n="prob_onset">Onset Probability</span>
+                <strong class="prob-val onset" id="homeOnsetProb">—</strong>
+                <small class="prob-sub" data-i18n="prob_sub_onset">Stable rain arrival</small>
+              </div>
+              <div class="prob-item">
+                <span class="prob-title" data-i18n="prob_break">Dry-Spell / Break Risk</span>
+                <strong class="prob-val break" id="homeBreakProb">—</strong>
+                <small class="prob-sub" data-i18n="prob_sub_break">7–10 day dry window</small>
+              </div>
+              <div class="prob-item">
+                <span class="prob-title" data-i18n="prob_heavy">Heavy-Rain Risk</span>
+                <strong class="prob-val heavy" id="homeHeavyProb">—</strong>
+                <small class="prob-sub" data-i18n="prob_sub_heavy">Downpour / waterlogging</small>
+              </div>
+              <div class="prob-item">
+                <span class="prob-title" data-i18n="reliability_7day">7-Day Reliability</span>
+                <strong class="prob-val conf" id="homeReliability">—</strong>
+                <small class="prob-sub" data-i18n="prob_sub_conf">Ensemble certainty</small>
+              </div>
+            </div>
+
+            <!-- RECOMMENDED ACTIONS -->
+            <div class="recommended-action-box">
+              <div class="action-box-header">
+                <span class="action-check-icon">✓</span>
+                <b data-i18n="recommended_action_title">Recommended Action for Today</b>
+              </div>
+              <ul class="action-bullets" id="decisionActionsList">
+                <li>Loading specific agronomic recommendation…</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Bottom Action Buttons: Scenarios & Forecast Link -->
+          <div class="decision-footer">
+            <button class="btn-scenario" id="btnWhatIfSow">
+              <span>❓</span> <span data-i18n="what_if_sow_btn">What if I sow today?</span>
+            </button>
+            <button class="btn-scenario outline" id="btnWhatIfAlreadySown">
+              <span>🌱</span> <span data-i18n="what_if_already_sown_btn">What if I already sowed?</span>
+            </button>
+            <button class="btn-view-forecast" id="btnGoToForecast">
+              <span data-i18n="view_7day_btn">View 7–14 Day Forecast →</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- SIGNATURE FEATURE: FALSE ONSET SHIELD -->
+        <div class="false-onset-shield hidden" id="falseOnsetShield">
+          <div class="shield-icon-badge">⚠️</div>
+          <div class="shield-content">
+            <div class="shield-tag" data-i18n="shield_tag">FALSE ONSET SHIELD ACTIVATED</div>
+            <h3 class="shield-title" data-i18n="shield_title">Caution: Possible False Monsoon Onset Detected</h3>
+            <p class="shield-desc" id="shieldDesc">
+              Rainfall may initially improve, but the forecast indicates an elevated chance of a dry spell afterward. Early rainfed sowing risks seedling mortality.
+            </p>
+            <div class="shield-metrics">
+              <div class="shield-metric-item">
+                <span data-i18n="onset_prob_short">Initial Onset:</span>
+                <b id="shieldOnsetVal">—</b>
+              </div>
+              <div class="shield-metric-item">
+                <span data-i18n="break_prob_short">Follow-up Dry Spell:</span>
+                <b id="shieldBreakVal" class="text-warn">—</b>
+              </div>
+              <div class="shield-metric-item">
+                <span data-i18n="affected_window">Affected Period:</span>
+                <b id="shieldPeriodVal">Days 4–10</b>
+              </div>
+            </div>
+            <div class="shield-action">
+              <strong data-i18n="shield_advice_label">Suggested Protective Action:</strong>
+              <span id="shieldActionText">Hold off sowing for 5–7 days until rainfall stabilizes. If sowing in nursery, ensure backup irrigation.</span>
+            </div>
+            <div class="shield-recheck">
+              <span>🔄</span> <small data-i18n="shield_recheck_text">Recommended recheck window: 3–5 days before committing seeds to field.</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7-DAY RAINFALL & MOISTURE WINDOW -->
+        <div class="section-card">
+          <div class="card-title-bar">
+            <div>
+              <h3 data-i18n="seven_day_window_title">📅 Next 7 Days Outlook</h3>
+              <p class="card-subtitle" data-i18n="seven_day_window_sub">Daily rainfall outlook and moisture suitability</p>
+            </div>
+            <span class="reliability-pill" id="sevenDayReliabilityPill">High Reliability</span>
+          </div>
+          <div class="day-strip-grid" id="homeDayStrip">
+            <!-- Dynamically populated 7-day cards -->
+          </div>
+        </div>
+
+        <!-- QUICK ACCESS CARDS -->
+        <div class="quick-row">
+          <div class="quick-card" id="cardQuickWeather">
+            <div class="quick-card-head">
+              <span class="quick-icon">🌦️</span>
+              <div>
+                <b data-i18n="quick_weather_title">Local Weather Conditions</b>
+                <small data-i18n="quick_weather_sub">Open-Meteo live feed</small>
+              </div>
+            </div>
+            <div class="quick-weather-body">
+              <div class="quick-temp-box">
+                <span class="big-temp" id="quickTemp">—°C</span>
+                <span class="temp-cond" id="quickCond">Loading…</span>
+              </div>
+              <div class="quick-weather-params">
+                <div><span data-i18n="humidity">Humidity:</span> <strong id="quickHumidity">—</strong></div>
+                <div><span data-i18n="wind">Wind:</span> <strong id="quickWind">—</strong></div>
+                <div><span data-i18n="precip">Rainfall:</span> <strong id="quickPrecip">—</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="quick-card" id="cardWhatsApp">
+            <div class="quick-card-head">
+              <span class="quick-icon">💬</span>
+              <div>
+                <b data-i18n="whatsapp_card_title">WhatsApp Daily Advisory</b>
+                <small data-i18n="whatsapp_card_sub">Direct to your phone in your language</small>
+              </div>
+            </div>
+            <div class="quick-whatsapp-body">
+              <p data-i18n="whatsapp_card_desc">Receive this personalized advisory every morning on WhatsApp. Powered by Twilio & LLM tone personalization.</p>
+              <div class="whatsapp-badge-row">
+                <span class="pill-chip">Bilingual EN / HI</span>
+                <span class="pill-chip">Any Village / Town</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- PAGE 2: LOCAL FORECAST (7 / 14 / 30 DAY PROGRESSIVE TIMELINE) -->
+      <!-- ============================================================== -->
+      <section class="page-view" id="page-forecast">
+        <div class="view-header">
+          <div>
+            <h2 data-i18n="forecast_page_title">Local Monsoon Forecast & Timeline</h2>
+            <p class="view-subtitle" id="forecastPageLocation">Calibrated forecast for your district</p>
+          </div>
+          <!-- Horizon Switcher -->
+          <div class="horizon-toggle" role="group" aria-label="Forecast horizon">
+            <button class="btn-horizon" data-days="7" data-i18n="days_7">7 Days</button>
+            <button class="btn-horizon active" data-days="14" data-i18n="days_14">14 Days</button>
+            <button class="btn-horizon" data-days="30" data-i18n="days_30">30 Days</button>
+          </div>
+        </div>
+
+        <!-- HONEST SCIENTIFIC CONFIDENCE EXPLANATION -->
+        <div class="scientific-confidence-banner">
+          <div class="conf-lead">
+            <span class="conf-info-icon">ℹ️</span>
+            <div>
+              <b data-i18n="conf_banner_title">Understanding Forecast Uncertainty by Horizon</b>
+              <p data-i18n="conf_banner_text">
+                Forecast uncertainty naturally increases with longer lead times. 7-day forecasts guide operational sowing and spraying, while 14–30 day outlooks reflect broader climatological trends.
+              </p>
+            </div>
+          </div>
+          <div class="conf-levels-row">
+            <div class="conf-level-card high">
+              <span class="conf-tag">DAYS 1–7</span>
+              <strong>HIGH RELIABILITY</strong>
+              <small>Calibrated short-range model</small>
+            </div>
+            <div class="conf-level-card moderate">
+              <span class="conf-tag">DAYS 8–14</span>
+              <strong>MODERATE RELIABILITY</strong>
+              <small>Synoptic envelope with widening band</small>
+            </div>
+            <div class="conf-level-card low">
+              <span class="conf-tag">DAYS 15–30</span>
+              <strong>BROAD OUTLOOK</strong>
+              <small>Teleconnection & climatology baseline</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- PROGRESSIVE MONSOON TIMELINE -->
+        <div class="section-card">
+          <div class="card-title-bar">
+            <div>
+              <h3 data-i18n="monsoon_timeline_title">Monsoon Phase Progression</h3>
+              <p class="card-subtitle" data-i18n="monsoon_timeline_sub">Weekly aggregated windows derived from model ensemble</p>
+            </div>
+          </div>
+          <div class="timeline-phases" id="timelinePhasesContainer">
+            <!-- Weekly timeline cards -->
+          </div>
+        </div>
+
+        <!-- DETAILED DAILY TABLE / PROGRESSIVE VIEW -->
+        <div class="section-card">
+          <div class="card-title-bar">
+            <div>
+              <h3 data-i18n="daily_probabilities_title">Day-by-Day Probability Breakdown</h3>
+              <p class="card-subtitle" data-i18n="daily_probabilities_sub">Daily calibrated probabilities of onset, dry-spell, and heavy rainfall</p>
+            </div>
+            <button class="btn-toggle-chart" id="btnToggleChart" data-i18n="toggle_chart_btn">Show Trend Chart</button>
+          </div>
+
+          <!-- Optional Chart.js Canvas -->
+          <div class="chart-wrapper hidden" id="forecastChartWrapper">
+            <div class="chart-controls">
+              <span class="chart-legend-item onset">● Onset Probability</span>
+              <span class="chart-legend-item break">● Dry-Spell Probability</span>
+              <span class="chart-legend-item heavy">● Heavy-Rain Probability</span>
+            </div>
+            <div class="canvas-container">
+              <canvas id="detailedForecastChart"></canvas>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="prob-table" id="forecastDailyTable">
+              <thead>
+                <tr>
+                  <th data-i18n="th_date">Date</th>
+                  <th data-i18n="th_day">Lead</th>
+                  <th data-i18n="tab_onset">Onset Probability</th>
+                  <th data-i18n="th_break">Dry-Spell Risk</th>
+                  <th data-i18n="th_heavy">Heavy-Rain Risk</th>
+                  <th data-i18n="th_status">Farming Window</th>
+                </tr>
+              </thead>
+              <tbody id="forecastTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- PAGE 3: MY CROP (CROP STAGE INTELLIGENCE & SCENARIOS) -->
+      <!-- ============================================================== -->
+      <section class="page-view" id="page-mycrop">
+        <div class="view-header">
+          <div>
+            <h2 data-i18n="mycrop_title">Crop Stage Intelligence & Agronomic Guidance</h2>
+            <p class="view-subtitle" data-i18n="mycrop_sub">Tailored recommendations matching your crop's exact growth stage and monsoon forecast</p>
+          </div>
+        </div>
+
+        <!-- Crop & Stage Selector Hub -->
+        <div class="crop-stage-hub">
+          <div class="hub-item">
+            <label for="cropHubSelect" data-i18n="select_crop_label">Choose Your Crop:</label>
+            <select id="cropHubSelect" class="large-select"></select>
+          </div>
+          <div class="hub-item stages-item">
+            <label data-i18n="select_stage_label">Current Growth Stage:</label>
+            <div class="growth-stage-stepper" id="growthStageStepper">
+              <button class="stage-step" data-stage="planning">
+                <span class="step-num">1</span>
+                <span class="step-text" data-i18n="stage_planning">Planning</span>
+              </button>
+              <button class="stage-step" data-stage="nursery">
+                <span class="step-num">2</span>
+                <span class="step-text" data-i18n="stage_nursery">Nursery</span>
+              </button>
+              <button class="stage-step active" data-stage="sowing">
+                <span class="step-num">3</span>
+                <span class="step-text" data-i18n="stage_sowing">Sowing/Transplanting</span>
+              </button>
+              <button class="stage-step" data-stage="vegetative">
+                <span class="step-num">4</span>
+                <span class="step-text" data-i18n="stage_vegetative">Vegetative</span>
+              </button>
+              <button class="stage-step" data-stage="flowering">
+                <span class="step-num">5</span>
+                <span class="step-text" data-i18n="stage_flowering">Flowering</span>
+              </button>
+              <button class="stage-step" data-stage="harvest">
+                <span class="step-num">6</span>
+                <span class="step-text" data-i18n="stage_harvest">Harvest</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage-Specific Advisory Result Card -->
+        <div class="section-card advisory-result-card" id="cropStageResultCard">
+          <div class="advisory-result-header">
+            <div class="crop-avatar" id="cropAvatar">🌾</div>
+            <div class="advisory-meta">
+              <div class="badge-stage" id="currentStageBadge">SOWING / TRANSPLANTING STAGE</div>
+              <h3 class="advisory-title" id="stageAdvisoryTitle">Assessing conditions for your crop…</h3>
+            </div>
+          </div>
+          <div class="advisory-content">
+            <p class="advisory-paragraph" id="stageAdvisoryMessage">—</p>
+            <div class="advisory-action-banner">
+              <b data-i18n="action_to_take">Action to take:</b>
+              <p id="stageAdvisoryAction">—</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- INTERACTIVE SCENARIOS: "What if I sow today?" & "What if I already sowed?" -->
+        <div class="scenarios-grid">
+          <!-- Scenario 1: What if I sow today? -->
+          <div class="scenario-panel">
+            <div class="scenario-head">
+              <span class="scenario-icon">❓</span>
+              <div>
+                <h4 data-i18n="scenario_sow_title">Scenario: What if I sow today?</h4>
+                <small data-i18n="scenario_sow_sub">Simulation based on current 7–10 day monsoon risk</small>
+              </div>
+            </div>
+            <div class="scenario-body" id="scenarioSowBody">
+              <!-- Dynamically populated simulation -->
+            </div>
+          </div>
+
+          <!-- Scenario 2: What if I already sowed? -->
+          <div class="scenario-panel">
+            <div class="scenario-head">
+              <span class="scenario-icon">🛡️</span>
+              <div>
+                <h4 data-i18n="scenario_already_title">Scenario: What if I already sowed?</h4>
+                <small data-i18n="scenario_already_sub">Contingency & protection measures</small>
+              </div>
+            </div>
+            <div class="scenario-body" id="scenarioAlreadyBody">
+              <!-- Dynamically populated simulation -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- PAGE 4: ALERTS (ACTION-ORIENTED NOTIFICATIONS) -->
+      <!-- ============================================================== -->
+      <section class="page-view" id="page-alerts">
+        <div class="view-header">
+          <div>
+            <h2 data-i18n="alerts_page_title">Action-Oriented Weather Alerts</h2>
+            <p class="view-subtitle" data-i18n="alerts_page_sub">Prioritized advisories requiring timely farm intervention</p>
+          </div>
+          <!-- Filter Tabs -->
+          <div class="alert-filter-tabs" id="alertFilterTabs">
+            <button class="filter-tab active" data-filter="all" data-i18n="filter_all">All Alerts</button>
+            <button class="filter-tab" data-filter="critical" data-i18n="filter_critical">High Risk</button>
+            <button class="filter-tab" data-filter="warning" data-i18n="filter_warning">Warnings</button>
+            <button class="filter-tab" data-filter="local" data-i18n="filter_local">My District</button>
+          </div>
+        </div>
+
+        <div class="alerts-feed-container" id="alertsFeedList">
+          <!-- Dynamically populated action-oriented alert cards -->
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- PAGE 5: EXPERT / OFFICER MODE (PRESERVED ADVANCED ANALYTICS) -->
+      <!-- ============================================================== -->
+      <section class="page-view" id="page-expert">
+        <div class="expert-banner">
+          <div class="expert-banner-lead">
+            <span class="badge-expert">OFFICER / EXPERT MODE</span>
+            <h2 data-i18n="expert_heading">Advanced Meteorological Diagnostics & System Analytics</h2>
+            <p data-i18n="expert_desc">Comprehensive national risk map across 423 curated agricultural districts, global teleconnections (ENSO/IOD/MJO), ML holdout metrics, and WhatsApp farmer management.</p>
+          </div>
+          <button class="btn-return-farmer" id="btnReturnToFarmer">
+            ← <span data-i18n="return_to_farmer_btn">Return to Farmer View</span>
+          </button>
+        </div>
+
+        <!-- Expert Sub-Navigation Tabs -->
+        <div class="expert-subnav">
+          <button class="expert-tab active" data-sub="climate">🌐 Climate Drivers</button>
+          <button class="expert-tab" data-sub="analytics">📊 Model Analytics & XAI</button>
+          <button class="expert-tab" data-sub="farmers">👥 Registered Farmers</button>
+          <button class="expert-tab" data-sub="status">⚙️ System Status</button>
+        </div>
+
+        <!-- Expert Tab 1: Climate Drivers (ENSO / IOD / MJO) -->
+        <div class="expert-panel active" id="expert-panel-climate">
+          <div class="section-card">
+            <div class="card-title-bar">
+              <div>
+                <h3>Global Teleconnections State (Live Feeds)</h3>
+                <p class="card-subtitle">Real-time ocean-atmosphere indices driving the ML calibration ensemble</p>
+              </div>
+              <span class="live-pill" id="climateAsOf">Live Cache: NOAA & BoM</span>
+            </div>
+            <div class="teleconnections-grid" id="expertTeleconnectionsGrid">
+              <!-- Dynamically populated teleconnections -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Expert Tab 3: Model Analytics & Explainable AI -->
+        <div class="expert-panel" id="expert-panel-analytics">
+          <div class="analytics-two-col">
+            <div class="section-card">
+              <div class="card-title-bar">
+                <div>
+                  <h3>Honest Model Evaluation (Holdout R²)</h3>
+                  <p class="card-subtitle">2015–2023 time-based holdout evaluation on official IMD gridded rainfall</p>
+                </div>
+              </div>
+              <div class="r2-list" id="expertR2List">
+                <!-- R2 scores -->
+              </div>
+            </div>
+
+            <div class="section-card">
+              <div class="card-title-bar">
+                <div>
+                  <h3>Global Feature Importance</h3>
+                  <p class="card-subtitle">Contribution across XGBoost, Random Forest & Gradient Boosting sub-models</p>
+                </div>
+                <div class="fi-toggle-buttons" id="fiToggleButtons">
+                  <button class="fi-tab active" data-target="onset">Onset</button>
+                  <button class="fi-tab" data-target="break">Break</button>
+                  <button class="fi-tab" data-target="heavy">Heavy</button>
+                </div>
+              </div>
+              <div class="fi-bars-list" id="expertFiList">
+                <!-- Feature importance bars -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expert Tab 4: Registered Farmers Proximity -->
+        <div class="expert-panel" id="expert-panel-farmers">
+          <div class="section-card">
+            <div class="card-title-bar">
+              <div>
+                <h3>WhatsApp Farmer Outreach</h3>
+                <p class="card-subtitle">Farmers registered via Twilio WhatsApp Sandbox within 60km radius of selected district</p>
+              </div>
+              <span class="farmer-count-badge" id="expertFarmerCountBadge">0 Farmers Nearby</span>
+            </div>
+            <div class="table-responsive">
+              <table class="prob-table" id="expertFarmersTable">
+                <thead>
+                  <tr>
+                    <th>Farmer Name</th>
+                    <th>Reported Location</th>
+                    <th>Distance</th>
+                    <th>Crops</th>
+                    <th>Land Size</th>
+                    <th>Irrigation</th>
+                    <th>Phone (Masked)</th>
+                  </tr>
+                </thead>
+                <tbody id="expertFarmersTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expert Tab 5: System Status & Diagnostics -->
+        <div class="expert-panel" id="expert-panel-status">
+          <div class="section-card">
+            <div class="card-title-bar">
+              <div>
+                <h3>System Architecture & Model Disclosures</h3>
+                <p class="card-subtitle">Technical specifications and scientific integrity statement</p>
+              </div>
+            </div>
+            <div class="status-disclosure-content">
+              <div class="status-bullet">
+                <b>Model Resolution:</b>
+                <p>The ML calibration ensemble predicts at <strong>district scale (~25km IMD grid)</strong>. Place-name geocoding via OpenStreetMap resolves village and block coordinates, which map to the corresponding district meteorological envelope. Local hyper-recent context is supplemented with Open-Meteo live API.</p>
+              </div>
+              <div class="status-bullet">
+                <b>Decision Layer Architecture:</b>
+                <p>The <code>decisionEngine()</code> translates multi-target probabilistic forecasts into actionable agronomic decisions (SOW / WAIT / PROTECT) using ICAR crop stage calendars and moisture thresholds without mutating raw ML weights.</p>
+              </div>
+              <div class="status-bullet">
+                <b>WhatsApp Gateway:</b>
+                <p>Runs on Twilio WhatsApp Sandbox connected to FastAPI webhook with stateful intake and Groq/Anthropic tone personalization grounded strictly in calibrated forecast outputs.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Global Footer -->
+    <footer class="app-footer">
+      <div class="footer-inner">
+        <div>
+          <b>Foresight Monsoon Decision-Support Platform</b> • SIH PS 26086
+          <small>Ministry of Earth Sciences (NCMRWF) & Smart India Hackathon</small>
+        </div>
+        <div class="footer-links">
+          <button class="footer-link-btn" onclick="showPage('expert')">Expert Mode</button>
+          <span>•</span>
+          <button class="footer-link-btn" onclick="window.scrollTo({top:0, behavior:'smooth'})">Back to Top ↑</button>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Scenario Details Dialog / Modal -->
+  <dialog class="app-modal" id="scenarioModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="scenarioModalTitle">Scenario Analysis</h3>
+        <button class="modal-close-btn" id="btnCloseModal" aria-label="Close modal">✕</button>
+      </div>
+      <div class="modal-body" id="scenarioModalBody">
+        <!-- Scenario content -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="btnModalAcknowledge">Understood</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- External Libraries -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Application Script -->
+  <script src="app.js"></script>
+</body>
+</html>
